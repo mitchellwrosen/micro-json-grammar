@@ -27,15 +27,16 @@ module Grammar
   , element
   ) where
 
+import Control.Applicative ((<|>))
 import Control.Category
-import Control.Monad    ((>=>), guard)
-import Data.Aeson       (Array, Object, Value(..))
-import Data.Bifunctor   (first)
-import Data.Kind        (Type)
-import Data.Scientific  (floatingOrInteger)
-import Data.Text        (Text)
-import Data.Vector      (Vector)
-import Prelude          hiding ((.))
+import Control.Monad       (guard, (>=>))
+import Data.Aeson          (Array, Object, Value(..))
+import Data.Bifunctor      (first)
+import Data.Kind           (Type)
+import Data.Scientific     (floatingOrInteger)
+import Data.Text           (Text)
+import Data.Vector         (Vector)
+import Prelude             hiding ((.))
 
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Vector         as Vector
@@ -52,6 +53,11 @@ data Grammar (a :: Type) (b :: Type) where
     -> Grammar a b
     -> Grammar a c
 
+  (:|) ::
+       Grammar a b
+    -> Grammar a b
+    -> Grammar a b
+
 instance Category Grammar where
   id :: Grammar a a
   id =
@@ -59,6 +65,10 @@ instance Category Grammar where
 
   (.) =
     (:.)
+
+instance Semigroup (Grammar a b) where
+  (<>) =
+    (:|)
 
 syntax ::
      (a -> Maybe b)
@@ -86,6 +96,10 @@ forwards_ g =
     g1 :. g2 ->
       forwards_ g2 >=> forwards_ g1
 
+    g1 :| g2 ->
+      \x ->
+        forwards_ g1 x <|> forwards_ g2 x
+
 backwards ::
      (forall x. Grammar (a, x) (b, x))
   -> b
@@ -104,6 +118,10 @@ backwards_ g =
 
     g1 :. g2 ->
       backwards_ g1 >=> backwards_ g2
+
+    g1 :| g2 ->
+      \x ->
+        backwards_ g1 x <|> backwards_ g2 x
 
 boolean :: Grammar (Value, x) (Bool, x)
 boolean =
