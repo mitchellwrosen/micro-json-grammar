@@ -17,11 +17,14 @@ library
     InstanceSigs
     KindSignatures
     LambdaCase
+    OverloadedStrings
+    PartialTypeSignatures
     RankNTypes
     TupleSections
 
   exposed-modules:
     Grammar
+    Test
 
   ghc-options:
     -Wall

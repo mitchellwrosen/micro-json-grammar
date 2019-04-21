@@ -1,23 +1,34 @@
+{-# OPTIONS_GHC -fno-warn-name-shadowing          #-}
+{-# OPTIONS_GHC -fno-warn-partial-type-signatures #-}
+
 module Grammar
   ( Grammar
+  , syntax
   , forwards
   , backwards
     -- * Atoms
-  , int
+  , boolean
+  , true
+  , false
+  , integral
+  , floating
   , string
+  , symbol
   , nullable
     -- * Objects
-  , object
+  , lenientObject
+  , strictObject
   , key
     -- * Arrays
   , array
     -- * Tuples
-  , tuple
-  , el
+  , lenientTuple
+  , strictTuple
+  , element
   ) where
 
 import Control.Category
-import Control.Monad    ((>=>))
+import Control.Monad    ((>=>), guard)
 import Data.Aeson       (Array, Object, Value(..))
 import Data.Bifunctor   (first)
 import Data.Kind        (Type)
@@ -48,6 +59,13 @@ instance Category Grammar where
 
   (.) =
     (:.)
+
+syntax ::
+     (a -> Maybe b)
+  -> (b -> Maybe a)
+  -> Grammar a b
+syntax =
+  Syntax
 
 forwards ::
      (forall x. Grammar (a, x) (b, x))
@@ -87,15 +105,49 @@ backwards_ g =
     g1 :. g2 ->
       backwards_ g1 >=> backwards_ g2
 
-int :: Grammar (Value, x) (Int, x)
-int =
+boolean :: Grammar (Value, x) (Bool, x)
+boolean =
+  Syntax
+    (\v -> do
+      (Bool b, x) <- pure v
+      pure (b, x))
+    (first Bool >>> Just)
+
+true :: Grammar (Value, x) x
+true =
+  boolean >>>
+    Syntax
+      (\case
+        (True, x) -> Just x
+        _ -> Nothing)
+      ((True ,) >>> Just)
+
+false :: Grammar (Value, x) x
+false =
+  boolean >>>
+    Syntax
+      (\case
+        (False, x) -> Just x
+        _ -> Nothing)
+      ((False ,) >>> Just)
+
+integral :: Integral a => Grammar (Value, x) (a, x)
+integral =
   Syntax
     (\v -> do
       (Number s, x) <- pure v
-      Right n <- pure (floatingOrInteger s :: Either Double Int)
+      Right n <- pure (floatingOrInteger s :: Either Double _)
       pure (n, x))
     (first (fromIntegral >>> Number) >>> Just)
 
+floating :: RealFloat a => Grammar (Value, x) (a, x)
+floating =
+  Syntax
+    (\v -> do
+      (Number s, x) <- pure v
+      Left n <- pure (floatingOrInteger s :: Either _ Integer)
+      pure (n, x))
+    (first (realToFrac >>> Number) >>> Just)
 
 string :: Grammar (Value, x) (Text, x)
 string =
@@ -104,6 +156,15 @@ string =
       (String s, x) <- pure v
       pure (s, x))
     (first String >>> Just)
+
+symbol :: Text -> Grammar (Value, x) x
+symbol s =
+  string >>>
+    Syntax
+      (\(t, x) -> do
+        guard (s == t)
+        pure x)
+      ((s ,) >>> Just)
 
 nullable ::
      Grammar (Value, x) (a, x)
@@ -118,15 +179,37 @@ nullable g =
       (Nothing, x) -> Just (Null, x)
       (Just v, x) -> backwards_ g (v, x))
 
-object ::
+lenientObject ::
      Grammar (Object, x) (Object, y)
   -> Grammar (Value, x) y
-object g =
+lenientObject g =
   Syntax
     (\v -> do
       (Object o, x) <- pure v
       snd <$> forwards_ g (o, x))
     ((HashMap.empty ,) >>> backwards_ g >>> fmap (first Object))
+
+strictObject ::
+     Grammar (Object, x) (Object, y)
+  -> Grammar (Value, x) y
+strictObject g =
+  Syntax
+    (\v -> do
+      (Object o, x) <- pure v
+      (o', y) <- forwards_ g (o, x)
+      guard (HashMap.null o')
+      pure y)
+    ((HashMap.empty ,) >>> backwards_ g >>> fmap (first Object))
+
+object ::
+     Grammar (Object, x) (Object, y)
+  -> Grammar (Value, x) (Object, y)
+object g =
+  Syntax
+    (\v -> do
+      (Object o, x) <- pure v
+      (forwards_ g (o, x)))
+    (backwards_ g >>> fmap (first Object))
 
 key ::
      Text
@@ -151,20 +234,32 @@ array g =
     (\(bs, x) ->
       (fmap fst >>> Array >>> (, x)) <$> traverse ((, ()) >>> backwards_ g) bs)
 
-tuple ::
+lenientTuple ::
      Grammar (Array, x) (Array, y)
   -> Grammar (Value, x) y
-tuple g =
+lenientTuple g =
   Syntax
     (\v -> do
       (Array vs, x) <- pure v
       snd <$> forwards_ g (vs, x))
     ((Vector.empty ,) >>> backwards_ g >>> fmap (first Array))
 
-el ::
+strictTuple ::
+     Grammar (Array, x) (Array, y)
+  -> Grammar (Value, x) y
+strictTuple g =
+  Syntax
+    (\v -> do
+      (Array vs, x) <- pure v
+      (vs', y) <- forwards_ g (vs, x)
+      guard (Vector.null vs')
+      pure y)
+    ((Vector.empty ,) >>> backwards_ g >>> fmap (first Array))
+
+element ::
      Grammar (Value, x) y
   -> Grammar (Array, x) (Array, y)
-el g =
+element g =
   Syntax
     (\(vs, x) ->
       (vs Vector.!? 0) >>=
