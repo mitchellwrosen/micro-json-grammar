@@ -183,23 +183,27 @@ lenientObject ::
      Grammar (Object, x) (Object, y)
   -> Grammar (Value, x) y
 lenientObject g =
+  object g >>> anyObject
+
+anyObject :: Grammar (Object, x) x
+anyObject =
   Syntax
-    (\v -> do
-      (Object o, x) <- pure v
-      snd <$> forwards_ g (o, x))
-    ((HashMap.empty ,) >>> backwards_ g >>> fmap (first Object))
+    (snd >>> Just)
+    ((HashMap.empty ,) >>> Just)
 
 strictObject ::
      Grammar (Object, x) (Object, y)
   -> Grammar (Value, x) y
 strictObject g =
+  object g >>> emptyObject
+
+emptyObject :: Grammar (Object, x) x
+emptyObject =
   Syntax
-    (\v -> do
-      (Object o, x) <- pure v
-      (o', y) <- forwards_ g (o, x)
-      guard (HashMap.null o')
-      pure y)
-    ((HashMap.empty ,) >>> backwards_ g >>> fmap (first Object))
+    (\(o, x) -> do
+      guard (HashMap.null o)
+      pure x)
+    ((HashMap.empty ,) >>> Just)
 
 object ::
      Grammar (Object, x) (Object, y)

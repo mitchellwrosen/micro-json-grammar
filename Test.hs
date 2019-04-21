@@ -16,13 +16,16 @@ data Person
 
 personGrammar :: Grammar (Value, x) (Person, x)
 personGrammar =
-  strictObject
+  lenientObject
     (key "name" string >>>
       key "age" integral)
   >>> syntax to from
 
   where
+    to :: (Int, (Text, x)) -> Maybe (Person, x)
     to (age, (name, x)) = Just (Person name age, x)
+
+    from :: (Person, x) -> Maybe (Int, (Text, x))
     from (person, x) = Just ((age person, (name person, x)))
 
 person :: Person
