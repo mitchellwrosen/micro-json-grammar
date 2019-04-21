@@ -22,8 +22,7 @@ module Grammar
     -- * Arrays
   , array
     -- * Tuples
-  , lenientTuple
-  , strictTuple
+  , tuple
   , element
   ) where
 
@@ -256,20 +255,10 @@ array g =
     (\(bs, x) ->
       (fmap fst >>> Array >>> (, x)) <$> traverse ((, ()) >>> backwards_ g) bs)
 
-lenientTuple ::
+tuple ::
      Grammar (Array, x) (Array, y)
   -> Grammar (Value, x) y
-lenientTuple g =
-  Syntax
-    (\v -> do
-      (Array vs, x) <- pure v
-      snd <$> forwards_ g (vs, x))
-    ((Vector.empty ,) >>> backwards_ g >>> fmap (first Array))
-
-strictTuple ::
-     Grammar (Array, x) (Array, y)
-  -> Grammar (Value, x) y
-strictTuple g =
+tuple g =
   Syntax
     (\v -> do
       (Array vs, x) <- pure v
