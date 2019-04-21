@@ -1,0 +1,27 @@
+cabal-version: 2.4
+
+name: micro-json-grammar
+version: 0
+
+library
+  build-depends:
+    aeson,
+    base,
+    scientific,
+    text,
+    unordered-containers,
+    vector,
+
+  default-extensions:
+    GADTs
+    InstanceSigs
+    KindSignatures
+    LambdaCase
+    RankNTypes
+    TupleSections
+
+  exposed-modules:
+    Grammar
+
+  ghc-options:
+    -Wall
