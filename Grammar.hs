@@ -24,14 +24,19 @@ module Grammar
     -- * Tuples
   , tuple
   , element
+    -- * To/from JSON
+  , grammarToJSON
+  , grammarParseJSON
   ) where
 
-import Control.Applicative ((<|>))
+import Control.Applicative (empty, (<|>))
 import Control.Category
 import Control.Monad       (guard, (>=>))
 import Data.Aeson          (Array, Object, Value(..))
+import Data.Aeson.Types    (Parser)
 import Data.Bifunctor      (first)
 import Data.Kind           (Type)
+import Data.Maybe
 import Data.Scientific     (floatingOrInteger)
 import Data.Text           (Text)
 import Data.Vector         (Vector)
@@ -296,3 +301,23 @@ element g =
         ((, x) >>> forwards_ g >>> fmap (Vector.drop 1 vs ,)))
     (\(vs, y) ->
       first (`Vector.cons` vs) <$> backwards_ g y)
+
+-- | Use a grammar to derive a 'Data.Aeson.ToJSON' instance.
+--
+-- @
+-- instance ToJSON Foo where
+--   toJSON = grammarToJSON fooGrammar
+-- @
+grammarToJSON :: (forall x. Grammar (Value, x) (a, x)) -> a -> Value
+grammarToJSON g x =
+  fromMaybe Null (backwards g x)
+
+-- | Use a grammar to derive a 'Data.Aeson.FromJSON' instance.
+--
+-- @
+-- instance FromJSON Foo where
+--   parseJSON = grammarParseJSON fooGrammar
+-- @
+grammarParseJSON :: (forall x. Grammar (Value, x) (a, x)) -> Value -> Parser a
+grammarParseJSON g v =
+  maybe empty pure (forwards g v)
