@@ -19,9 +19,9 @@ library
     KindSignatures
     LambdaCase
     OverloadedStrings
-    PartialTypeSignatures
     RankNTypes
     TupleSections
+    TypeApplications
 
   exposed-modules:
     Grammar

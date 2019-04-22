@@ -2,19 +2,22 @@
 {-# OPTIONS_GHC -fno-warn-partial-type-signatures #-}
 
 module Grammar
-  ( Grammar
+  ( -- * Grammar
+    Grammar
   , syntax
   , forwards
   , backwards
-    -- * Atoms
+    -- * Booleans
   , boolean
   , true
   , false
+    -- * Numbers
+  , number
   , integral
   , floating
+    -- * Strings
   , string
   , symbol
-  , nullable
     -- * Objects
   , ObjectGrammar
   , lenientObject
@@ -26,21 +29,21 @@ module Grammar
   , TupleGrammar
   , tuple
   , element
+    -- * Nulls
+  , nullable
     -- * To/from JSON
   , grammarToJSON
   , grammarParseJSON
   ) where
 
 import Control.Applicative (empty, (<|>))
-import Control.Category
+import Control.Category    (Category(..), (>>>))
 import Control.Monad       (guard, (>=>))
 import Data.Aeson          (Object, Value(..))
 import Data.Aeson.Types    (Parser)
 import Data.Bifunctor      (first)
 import Data.Foldable       (toList)
-import Data.Kind           (Type)
-import Data.Maybe
-import Data.Scientific     (floatingOrInteger)
+import Data.Scientific     (Scientific, floatingOrInteger)
 import Data.Sequence       (Seq)
 import Data.Text           (Text)
 import Data.Vector         (Vector)
@@ -51,7 +54,7 @@ import qualified Data.Sequence       as Seq
 import qualified Data.Vector         as Vector
 
 
-data Grammar (a :: Type) (b :: Type) where
+data Grammar a b where
   Syntax ::
        (a -> Maybe b)
     -> (b -> Maybe a)
@@ -133,22 +136,29 @@ boolean =
 -- | Match 'True'.
 true :: Grammar (Value, x) x
 true =
-  boolean >>>
-    Syntax
-      (\case
-        (True, x) -> Just x
-        _ -> Nothing)
-      ((True ,) >>> Just)
+  Syntax
+    (\v -> do
+      (Bool True, x) <- pure v
+      pure x)
+    ((Bool True ,) >>> Just)
 
 -- | Match 'False'.
 false :: Grammar (Value, x) x
 false =
-  boolean >>>
-    Syntax
-      (\case
-        (False, x) -> Just x
-        _ -> Nothing)
-      ((False ,) >>> Just)
+  Syntax
+    (\v -> do
+      (Bool False, x) <- pure v
+      pure x)
+    ((Bool False ,) >>> Just)
+
+-- | Match any number.
+number :: Grammar (Value, x) (Scientific, x)
+number =
+  Syntax
+    (\v -> do
+      (Number n, x) <- pure v
+      pure (n, x))
+    (first Number >>> Just)
 
 -- | Match any integral number.
 integral :: Integral a => Grammar (Value, x) (a, x)
@@ -156,7 +166,7 @@ integral =
   Syntax
     (\v -> do
       (Number s, x) <- pure v
-      Right n <- pure (floatingOrInteger s :: Either Double _)
+      Right n <- pure (floatingOrInteger @Double s)
       pure (n, x))
     (first (fromIntegral >>> Number) >>> Just)
 
@@ -166,7 +176,7 @@ floating =
   Syntax
     (\v -> do
       (Number s, x) <- pure v
-      Left n <- pure (floatingOrInteger s :: Either _ Integer)
+      Left n <- pure (floatingOrInteger @_ @Integer s)
       pure (n, x))
     (first (realToFrac >>> Number) >>> Just)
 
@@ -182,12 +192,12 @@ string =
 -- | Match the given string.
 symbol :: Text -> Grammar (Value, x) x
 symbol s =
-  string >>>
-    Syntax
-      (\(t, x) -> do
-        guard (s == t)
-        pure x)
-      ((s ,) >>> Just)
+  Syntax
+    (\v -> do
+      (String t, x) <- pure v
+      guard (s == t)
+      pure x)
+    ((String s ,) >>> Just)
 
 -- | Modify a grammar to additionally match @null@.
 nullable ::
@@ -213,45 +223,38 @@ instance Category ObjectGrammar where
 instance Semigroup (ObjectGrammar x y) where
   ObjectGrammar x <> ObjectGrammar y = ObjectGrammar (x <> y)
 
--- | Match an object grammar constructed with 'key' leniently (allowing
--- additional keys in the forward direction).
+-- | Match an object grammar leniently (allowing additional keys in the forward
+-- direction).
 lenientObject ::
      ObjectGrammar x y
   -> Grammar (Value, x) y
 lenientObject (ObjectGrammar g) =
-  object g >>> anyObject
-
-anyObject :: Grammar (Object, x) x
-anyObject =
   Syntax
-    (snd >>> Just)
-    ((HashMap.empty ,) >>> Just)
+    (\v -> do
+      (Object o, x) <- pure v
+      snd <$> forwards g (o, x))
+    (backwardsObject g)
 
--- | Match an object grammar constructed with 'key' strictly (disallowing
--- additional keys in the forward direction).
+-- | Match an object grammar strictly (disallowing additional keys in the
+-- forward direction).
 strictObject ::
      ObjectGrammar x y
   -> Grammar (Value, x) y
 strictObject (ObjectGrammar g) =
-  object g >>> emptyObject
-
-emptyObject :: Grammar (Object, x) x
-emptyObject =
-  Syntax
-    (\(o, x) -> do
-      guard (HashMap.null o)
-      pure x)
-    ((HashMap.empty ,) >>> Just)
-
-object ::
-     Grammar (Object, x) (Object, y)
-  -> Grammar (Value, x) (Object, y)
-object g =
   Syntax
     (\v -> do
       (Object o, x) <- pure v
-      (forwards g (o, x)))
-    (backwards g >>> fmap (first Object))
+      (o', y) <- forwards g (o, x)
+      guard (HashMap.null o')
+      pure y)
+    (backwardsObject g)
+
+backwardsObject ::
+     Grammar (Object, x) (Object, y)
+  -> y
+  -> Maybe (Value, x)
+backwardsObject g =
+  (HashMap.empty ,) >>> backwards g >>> fmap (first Object)
 
 -- | Match a grammar at the given key in an object.
 key ::
@@ -289,7 +292,7 @@ instance Category TupleGrammar where
 instance Semigroup (TupleGrammar x y) where
   TupleGrammar x <> TupleGrammar y = TupleGrammar (x <> y)
 
--- | Match a heterogeneous array grammar constructed with 'element'.
+-- | Match a tuple (heterogeneous array) grammar.
 tuple ::
      TupleGrammar x y
   -> Grammar (Value, x) y

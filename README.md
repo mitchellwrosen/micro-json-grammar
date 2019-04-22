@@ -17,20 +17,20 @@ Just (≪true≫, ())
 #### Integral
 
 ```haskell
->>> forwards integral (≪1≫, ()) :: Maybe (Int, ())
+>>> forwards integral (≪1≫, ())
 Just (1, ())
 
->>> backwards integral (1 :: Int, ())
+>>> backwards integral (1, ())
 Just (≪1.0≫, ())
 ```
 
 #### Floating
 
 ```haskell
->>> forwards floating (≪1.5≫, ()) :: Maybe (Double, ())
+>>> forwards floating (≪1.5≫, ())
 Just (1.5, ())
 
->>> backwards floating (1.5 :: Double, ())
+>>> backwards floating (1.5, ())
 Just (≪1.5≫, ())
 ```
 
