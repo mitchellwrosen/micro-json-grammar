@@ -54,6 +54,45 @@ import qualified Data.Sequence       as Seq
 import qualified Data.Vector         as Vector
 
 
+-- | A grammar represents an invertible mapping between two types.
+--
+-- For example, the 'boolean' grammar represents the mapping between a JSON
+-- value and a boolean value. A JSON value /may/ be able to be converted to a
+-- boolean value, whereas a boolean value can /always/ be converted to a JSON
+-- value.
+--
+-- Though this particular mapping seems partial only in one direction, a grammar
+-- is necessarily partial in both directions, perhaps violating your intuition
+-- about parsing and printing, which are typically partial and total,
+-- respectively.
+--
+-- This is one downside of using invertible syntaxes; another is the
+-- preponderance of nested tuples and dealing with boilerplate @()@ values.
+--
+-- You might expect the type of 'boolean' to be
+--
+-- @
+-- 'Grammar' Value Bool
+-- @
+--
+-- but it is written in "open-style"
+--
+-- @
+-- 'Grammar' (Value, x) (Bool, x)
+-- @
+--
+-- instead. This is because grammars are sequenced with the category-composition
+-- operator: when parsing multiple values out of a single JSON value, as is the
+-- case with objects and tuples (heterogeneous arrays), the output of one
+-- grammar needs to be compatible with the input of the next.
+--
+-- As an example, observe the type of a grammar that parses a boolean and a
+-- string out of a JSON object:
+--
+-- @
+-- >>> :t 'lenientObject' ('key' "foo" 'boolean' >>> 'key' "bar" 'string')
+-- 'Grammar' (Value, x) (Text, (Bool, x))
+-- @
 data Grammar a b where
   Syntax ::
        (a -> Maybe b)
@@ -213,6 +252,45 @@ nullable g =
       (Nothing, x) -> Just (Null, x)
       (Just v, x) -> backwards g (v, x))
 
+-- | An object grammar represents an invertible mapping between a JSON object
+-- and a collection of types.
+--
+-- For example, a value of type
+--
+-- @
+-- 'ObjectGrammar' x (A, (B, (C, x)))
+-- @
+--
+-- represents an invertible mapping between a JSON object and three values with
+-- types A, B, and C.
+--
+-- It may be applied leniently ('lenientObject') or strictly ('strictObject');
+-- that is, in the forward (parsing) direction, additional keys may be allowed
+-- in the object.
+--
+-- Here is an example @ghci@ session that demonstrates how object grammars work:
+--
+-- @
+-- __The simplest object grammar: one key/value pair__
+-- >>> :t 'key' "foo" 'boolean'
+-- 'ObjectGrammar' x (Bool, x)
+--
+-- __Two key/value pairs__
+-- >>> :t 'key' "foo" 'boolean' >>> 'key' "bar" 'string'
+-- 'ObjectGrammar' x (Text, (Bool, x))
+--
+-- __Lifting to a grammar__
+-- >>> :t 'lenientObject' ('key' "foo" 'boolean' >>> 'key' "bar" 'string')
+-- 'Grammar' (Value, x) (Text, (Bool, x))
+--
+-- __Running it forwards, parsing {"foo":true,"bar":"baz"}__
+-- >>> :t 'forwards' ('lenientObject' ('key' "foo" 'boolean' >>> 'key' "bar" 'string'))
+-- (Value, x) -> Maybe (Text, (Bool, x))
+--
+-- __Running it backwards, printing as {"foo":true,"bar":"baz"}__
+-- >>> :t 'backwards' ('lenientObject' ('key' "foo" 'boolean' >>> 'key' "bar" 'string'))
+-- (Text, (Bool, x)) -> Maybe (Value, x)
+-- @
 newtype ObjectGrammar x y
   = ObjectGrammar (Grammar (Object, x) (Object, y))
 
@@ -282,6 +360,41 @@ array g =
     (\(bs, x) ->
       (fmap fst >>> Array >>> (, x)) <$> traverse ((, ()) >>> backwards g) bs)
 
+-- | A tuple grammar represents an invertible mapping between a fixed-size JSON
+-- array and a collection of types.
+--
+-- For example, a value of type
+--
+-- @
+-- 'TupleGrammar' x (A, (B, (C, x)))
+-- @
+--
+-- represents an invertible mapping between a three-element JSON array and three
+-- values with types A, B, and C.
+--
+-- Here is an example @ghci@ session that demonstrates how tuple grammars work:
+--
+-- @
+-- __The simplest tuple grammar: one element__
+-- >>> :t 'element' 'boolean'
+-- 'TupleGrammar' x (Bool, x)
+--
+-- __Two elements__
+-- >>> :t 'element' 'boolean' >>> 'element' 'string'
+-- 'TupleGrammar' x (Text, (Bool, x))
+--
+-- __Lifting to a grammar__
+-- >>> :t 'tuple' ('element' 'boolean' >>> 'element' 'string')
+-- 'Grammar' (Value, x) (Text, (Bool, x))
+--
+-- __Running it forwards, parsing [true,"baz"]__
+-- >>> :t 'forwards' ('tuple' ('element' 'boolean' >>> 'element' 'string'))
+-- (Value, x) -> Maybe (Text, (Bool, x))
+--
+-- __Running it backwards, printing as [true,"baz"]__
+-- >>> :t 'backwards' ('tuple' ('element' 'boolean' >>> 'element' 'string'))
+-- (Text, (Bool, x)) -> Maybe (Value, x)
+-- @
 newtype TupleGrammar x y
   = TupleGrammar (Grammar (Seq Value, x) (Seq Value, y))
 
