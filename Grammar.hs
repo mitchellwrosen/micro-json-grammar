@@ -32,17 +32,20 @@ module Grammar
 import Control.Applicative (empty, (<|>))
 import Control.Category
 import Control.Monad       (guard, (>=>))
-import Data.Aeson          (Array, Object, Value(..))
+import Data.Aeson          (Object, Value(..))
 import Data.Aeson.Types    (Parser)
 import Data.Bifunctor      (first)
+import Data.Foldable       (toList)
 import Data.Kind           (Type)
 import Data.Maybe
 import Data.Scientific     (floatingOrInteger)
+import Data.Sequence       (Seq)
 import Data.Text           (Text)
 import Data.Vector         (Vector)
 import Prelude             hiding ((.))
 
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.Sequence       as Seq
 import qualified Data.Vector         as Vector
 
 
@@ -263,30 +266,42 @@ array g =
     (\(bs, x) ->
       (fmap fst >>> Array >>> (, x)) <$> traverse ((, ()) >>> backwards g) bs)
 
+newtype TupleGrammar x y
+  = TupleGrammar (Grammar (Seq Value, x) (Seq Value, y))
+
 -- | Match a heterogeneous array grammar constructed with 'element'.
 tuple ::
-     Grammar (Array, x) (Array, y)
+     TupleGrammar x y
   -> Grammar (Value, x) y
-tuple g =
+tuple (TupleGrammar g) =
   Syntax
     (\v -> do
       (Array vs, x) <- pure v
-      (vs', y) <- forwards g (vs, x)
-      guard (Vector.null vs')
+      (vs', y) <- forwards g (vectorToSeq vs, x)
+      guard (Seq.null vs')
       pure y)
-    ((Vector.empty ,) >>> backwards g >>> fmap (first Array))
+    ((Seq.empty ,) >>> backwards g >>> fmap (first (Array . seqToVector)))
+
+vectorToSeq :: Vector a -> Seq a
+vectorToSeq =
+  Seq.fromList . Vector.toList
+
+seqToVector :: Seq a -> Vector a
+seqToVector =
+  Vector.fromList . toList
 
 -- | Match a grammar at the current element in an array.
 element ::
      Grammar (Value, x) y
-  -> Grammar (Array, x) (Array, y)
+  -> TupleGrammar x y
 element g =
-  Syntax
-    (\(vs, x) ->
-      (vs Vector.!? 0) >>=
-        ((, x) >>> forwards g >>> fmap (Vector.drop 1 vs ,)))
-    (\(vs, y) ->
-      first (`Vector.cons` vs) <$> backwards g y)
+  TupleGrammar
+    (Syntax
+      (\(vs, x) -> do
+        v Seq.:<| vs' <- pure vs
+        (vs' ,) <$> forwards g (v, x))
+      (\(vs, y) ->
+        first (Seq.:<| vs) <$> backwards g y))
 
 -- | Use a grammar to derive a 'Data.Aeson.ToJSON' instance.
 --

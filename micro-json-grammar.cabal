@@ -7,6 +7,7 @@ library
   build-depends:
     aeson,
     base,
+    containers,
     scientific,
     text,
     unordered-containers,
