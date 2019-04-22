@@ -16,12 +16,14 @@ module Grammar
   , symbol
   , nullable
     -- * Objects
+  , ObjectGrammar
   , lenientObject
   , strictObject
   , key
     -- * Arrays
   , array
     -- * Tuples
+  , TupleGrammar
   , tuple
   , element
     -- * To/from JSON
@@ -42,7 +44,7 @@ import Data.Scientific     (floatingOrInteger)
 import Data.Sequence       (Seq)
 import Data.Text           (Text)
 import Data.Vector         (Vector)
-import Prelude             hiding ((.))
+import Prelude             hiding (id, (.))
 
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Sequence       as Seq
@@ -201,12 +203,22 @@ nullable g =
       (Nothing, x) -> Just (Null, x)
       (Just v, x) -> backwards g (v, x))
 
+newtype ObjectGrammar x y
+  = ObjectGrammar (Grammar (Object, x) (Object, y))
+
+instance Category ObjectGrammar where
+  id = ObjectGrammar id
+  ObjectGrammar x . ObjectGrammar y = ObjectGrammar (x . y)
+
+instance Semigroup (ObjectGrammar x y) where
+  ObjectGrammar x <> ObjectGrammar y = ObjectGrammar (x <> y)
+
 -- | Match an object grammar constructed with 'key' leniently (allowing
 -- additional keys in the forward direction).
 lenientObject ::
-     Grammar (Object, x) (Object, y)
+     ObjectGrammar x y
   -> Grammar (Value, x) y
-lenientObject g =
+lenientObject (ObjectGrammar g) =
   object g >>> anyObject
 
 anyObject :: Grammar (Object, x) x
@@ -218,9 +230,9 @@ anyObject =
 -- | Match an object grammar constructed with 'key' strictly (disallowing
 -- additional keys in the forward direction).
 strictObject ::
-     Grammar (Object, x) (Object, y)
+     ObjectGrammar x y
   -> Grammar (Value, x) y
-strictObject g =
+strictObject (ObjectGrammar g) =
   object g >>> emptyObject
 
 emptyObject :: Grammar (Object, x) x
@@ -245,14 +257,15 @@ object g =
 key ::
      Text
   -> Grammar (Value, x) y
-  -> Grammar (Object, x) (Object, y)
+  -> ObjectGrammar x y
 key k g =
-  Syntax
-    (\(m, x) -> do
-      v <- HashMap.lookup k m
-      (HashMap.delete k m ,) <$> forwards g (v, x))
-    (\(m, y) ->
-      first (\v -> HashMap.insert k v m) <$> backwards g y)
+  ObjectGrammar
+    (Syntax
+      (\(m, x) -> do
+        v <- HashMap.lookup k m
+        (HashMap.delete k m ,) <$> forwards g (v, x))
+      (\(m, y) ->
+        first (\v -> HashMap.insert k v m) <$> backwards g y))
 
 -- | Match a homogenous array grammar.
 array ::
@@ -268,6 +281,13 @@ array g =
 
 newtype TupleGrammar x y
   = TupleGrammar (Grammar (Seq Value, x) (Seq Value, y))
+
+instance Category TupleGrammar where
+  id = TupleGrammar id
+  TupleGrammar x . TupleGrammar y = TupleGrammar (x . y)
+
+instance Semigroup (TupleGrammar x y) where
+  TupleGrammar x <> TupleGrammar y = TupleGrammar (x <> y)
 
 -- | Match a heterogeneous array grammar constructed with 'element'.
 tuple ::
