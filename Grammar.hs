@@ -84,51 +84,37 @@ syntax =
 
 -- | Run a grammar forwards.
 forwards ::
-     (forall x. Grammar (a, x) (b, x))
-  -> a
-  -> Maybe b
-forwards g =
-  (, ()) >>> forwards_ g >>> fmap fst
-
-forwards_ ::
      Grammar a b
   -> a
   -> Maybe b
-forwards_ g =
+forwards g =
   case g of
     Syntax f _ ->
       f
 
     g1 :. g2 ->
-      forwards_ g2 >=> forwards_ g1
+      forwards g2 >=> forwards g1
 
     g1 :| g2 ->
       \x ->
-        forwards_ g1 x <|> forwards_ g2 x
+        forwards g1 x <|> forwards g2 x
 
 -- | Run a grammar backwards.
 backwards ::
-     (forall x. Grammar (a, x) (b, x))
-  -> b
-  -> Maybe a
-backwards g =
-  (, ()) >>> backwards_ g >>> fmap fst
-
-backwards_ ::
      Grammar a b
   -> b
   -> Maybe a
-backwards_ g =
+backwards g =
   case g of
     Syntax _ f ->
       f
 
     g1 :. g2 ->
-      backwards_ g1 >=> backwards_ g2
+      backwards g1 >=> backwards g2
 
     g1 :| g2 ->
       \x ->
-        backwards_ g1 x <|> backwards_ g2 x
+        backwards g1 x <|> backwards g2 x
 
 -- | Match any boolean.
 boolean :: Grammar (Value, x) (Bool, x)
@@ -207,10 +193,10 @@ nullable g =
     (\(v, x) ->
       case v of
         Null -> Just (Nothing, x)
-        _ -> first Just <$> forwards_ g (v, x))
+        _ -> first Just <$> forwards g (v, x))
     (\case
       (Nothing, x) -> Just (Null, x)
-      (Just v, x) -> backwards_ g (v, x))
+      (Just v, x) -> backwards g (v, x))
 
 -- | Match an object grammar constructed with 'key' leniently (allowing
 -- additional keys in the forward direction).
@@ -249,8 +235,8 @@ object g =
   Syntax
     (\v -> do
       (Object o, x) <- pure v
-      (forwards_ g (o, x)))
-    (backwards_ g >>> fmap (first Object))
+      (forwards g (o, x)))
+    (backwards g >>> fmap (first Object))
 
 -- | Match a grammar at the given key in an object.
 key ::
@@ -261,9 +247,9 @@ key k g =
   Syntax
     (\(m, x) -> do
       v <- HashMap.lookup k m
-      (HashMap.delete k m ,) <$> forwards_ g (v, x))
+      (HashMap.delete k m ,) <$> forwards g (v, x))
     (\(m, y) ->
-      first (\v -> HashMap.insert k v m) <$> backwards_ g y)
+      first (\v -> HashMap.insert k v m) <$> backwards g y)
 
 -- | Match a homogenous array grammar.
 array ::
@@ -273,9 +259,9 @@ array g =
   Syntax
     (\v -> do
       (Array vs, x) <- pure v
-      (fmap fst >>> (, x)) <$> traverse ((, ()) >>> forwards_ g) vs)
+      (fmap fst >>> (, x)) <$> traverse ((, ()) >>> forwards g) vs)
     (\(bs, x) ->
-      (fmap fst >>> Array >>> (, x)) <$> traverse ((, ()) >>> backwards_ g) bs)
+      (fmap fst >>> Array >>> (, x)) <$> traverse ((, ()) >>> backwards g) bs)
 
 -- | Match a heterogeneous array grammar constructed with 'element'.
 tuple ::
@@ -285,10 +271,10 @@ tuple g =
   Syntax
     (\v -> do
       (Array vs, x) <- pure v
-      (vs', y) <- forwards_ g (vs, x)
+      (vs', y) <- forwards g (vs, x)
       guard (Vector.null vs')
       pure y)
-    ((Vector.empty ,) >>> backwards_ g >>> fmap (first Array))
+    ((Vector.empty ,) >>> backwards g >>> fmap (first Array))
 
 -- | Match a grammar at the current element in an array.
 element ::
@@ -298,9 +284,9 @@ element g =
   Syntax
     (\(vs, x) ->
       (vs Vector.!? 0) >>=
-        ((, x) >>> forwards_ g >>> fmap (Vector.drop 1 vs ,)))
+        ((, x) >>> forwards g >>> fmap (Vector.drop 1 vs ,)))
     (\(vs, y) ->
-      first (`Vector.cons` vs) <$> backwards_ g y)
+      first (`Vector.cons` vs) <$> backwards g y)
 
 -- | Use a grammar to derive a 'Data.Aeson.ToJSON' instance.
 --
@@ -310,7 +296,7 @@ element g =
 -- @
 grammarToJSON :: (forall x. Grammar (Value, x) (a, x)) -> a -> Value
 grammarToJSON g x =
-  fromMaybe Null (backwards g x)
+  maybe Null fst (backwards g (x, ()))
 
 -- | Use a grammar to derive a 'Data.Aeson.FromJSON' instance.
 --
@@ -320,4 +306,4 @@ grammarToJSON g x =
 -- @
 grammarParseJSON :: (forall x. Grammar (Value, x) (a, x)) -> Value -> Parser a
 grammarParseJSON g v =
-  maybe empty pure (forwards g v)
+  maybe empty (pure . fst) (forwards g (v, ()))
