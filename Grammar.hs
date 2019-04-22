@@ -69,6 +69,7 @@ instance Semigroup (Grammar a b) where
   (<>) =
     (:|)
 
+-- | Construct a grammar from an invertible syntax.
 syntax ::
      (a -> Maybe b)
   -> (b -> Maybe a)
@@ -76,6 +77,7 @@ syntax ::
 syntax =
   Syntax
 
+-- | Run a grammar forwards.
 forwards ::
      (forall x. Grammar (a, x) (b, x))
   -> a
@@ -99,6 +101,7 @@ forwards_ g =
       \x ->
         forwards_ g1 x <|> forwards_ g2 x
 
+-- | Run a grammar backwards.
 backwards ::
      (forall x. Grammar (a, x) (b, x))
   -> b
@@ -122,6 +125,7 @@ backwards_ g =
       \x ->
         backwards_ g1 x <|> backwards_ g2 x
 
+-- | Match any boolean.
 boolean :: Grammar (Value, x) (Bool, x)
 boolean =
   Syntax
@@ -130,6 +134,7 @@ boolean =
       pure (b, x))
     (first Bool >>> Just)
 
+-- | Match 'True'.
 true :: Grammar (Value, x) x
 true =
   boolean >>>
@@ -139,6 +144,7 @@ true =
         _ -> Nothing)
       ((True ,) >>> Just)
 
+-- | Match 'False'.
 false :: Grammar (Value, x) x
 false =
   boolean >>>
@@ -148,6 +154,7 @@ false =
         _ -> Nothing)
       ((False ,) >>> Just)
 
+-- | Match any integral number.
 integral :: Integral a => Grammar (Value, x) (a, x)
 integral =
   Syntax
@@ -157,6 +164,7 @@ integral =
       pure (n, x))
     (first (fromIntegral >>> Number) >>> Just)
 
+-- | Match any floating point number.
 floating :: RealFloat a => Grammar (Value, x) (a, x)
 floating =
   Syntax
@@ -166,6 +174,7 @@ floating =
       pure (n, x))
     (first (realToFrac >>> Number) >>> Just)
 
+-- | Match any string.
 string :: Grammar (Value, x) (Text, x)
 string =
   Syntax
@@ -174,6 +183,7 @@ string =
       pure (s, x))
     (first String >>> Just)
 
+-- | Match the given string.
 symbol :: Text -> Grammar (Value, x) x
 symbol s =
   string >>>
@@ -183,6 +193,7 @@ symbol s =
         pure x)
       ((s ,) >>> Just)
 
+-- | Modify a grammar to additionally match @null@.
 nullable ::
      Grammar (Value, x) (a, x)
   -> Grammar (Value, x) (Maybe a, x)
@@ -196,6 +207,8 @@ nullable g =
       (Nothing, x) -> Just (Null, x)
       (Just v, x) -> backwards_ g (v, x))
 
+-- | Match an object grammar constructed with 'key' leniently (allowing
+-- additional keys in the forward direction).
 lenientObject ::
      Grammar (Object, x) (Object, y)
   -> Grammar (Value, x) y
@@ -208,6 +221,8 @@ anyObject =
     (snd >>> Just)
     ((HashMap.empty ,) >>> Just)
 
+-- | Match an object grammar constructed with 'key' strictly (disallowing
+-- additional keys in the forward direction).
 strictObject ::
      Grammar (Object, x) (Object, y)
   -> Grammar (Value, x) y
@@ -232,6 +247,7 @@ object g =
       (forwards_ g (o, x)))
     (backwards_ g >>> fmap (first Object))
 
+-- | Match a grammar at the given key in an object.
 key ::
      Text
   -> Grammar (Value, x) y
@@ -244,6 +260,7 @@ key k g =
     (\(m, y) ->
       first (\v -> HashMap.insert k v m) <$> backwards_ g y)
 
+-- | Match a homogenous array grammar.
 array ::
      (forall x. Grammar (Value, x) (b, x))
   -> Grammar (Value, x) (Vector b, x)
@@ -255,6 +272,7 @@ array g =
     (\(bs, x) ->
       (fmap fst >>> Array >>> (, x)) <$> traverse ((, ()) >>> backwards_ g) bs)
 
+-- | Match a heterogeneous array grammar constructed with 'element'.
 tuple ::
      Grammar (Array, x) (Array, y)
   -> Grammar (Value, x) y
@@ -267,6 +285,7 @@ tuple g =
       pure y)
     ((Vector.empty ,) >>> backwards_ g >>> fmap (first Array))
 
+-- | Match a grammar at the current element in an array.
 element ::
      Grammar (Value, x) y
   -> Grammar (Array, x) (Array, y)
